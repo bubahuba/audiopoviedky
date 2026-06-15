@@ -1,0 +1,49 @@
+{
+  "name": "audiopoviedky",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "android": "NODE_OPTIONS=--openssl-legacy-provider react-native run-android",
+    "ios": "react-native run-ios --scheme AudioPoviedky --simulator='iPhone 16 Pro'",
+    "start": "react-native start",
+    "test": "jest",
+    "lint": "eslint .",
+    "postinstall": "node scripts/fix-react-native-platform-shims.js"
+  },
+  "dependencies": {
+    "@react-native-community/async-storage": "^1.12.0",
+    "@react-native-community/cli": "^4.14.0",
+    "@react-native-community/masked-view": "^0.1.10",
+    "@react-native-community/slider": "^3.0.3",
+    "@react-navigation/drawer": "^5.9.3",
+    "@react-navigation/native": "^5.7.3",
+    "@react-navigation/stack": "^5.9.0",
+    "metro": "^0.63.0",
+    "react": "16.13.1",
+    "react-native": "0.63.2",
+    "react-native-alphabet-sectionlist": "^0.0.4",
+    "react-native-elements": "^3.0.0-alpha.1",
+    "react-native-gesture-handler": "^1.8.0",
+    "react-native-reanimated": "^1.13.0",
+    "react-native-render-html": "^4.2.4",
+    "react-native-safe-area-context": "^3.1.7",
+    "react-native-screens": "^2.11.0",
+    "react-native-track-player": "^2.1.2",
+    "react-native-vector-icons": "^7.1.0",
+    "react-native-webview": "^10.9.2",
+    "react-navigation": "^4.4.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.11.6",
+    "@babel/runtime": "^7.11.2",
+    "@react-native-community/eslint-config": "^2.0.0",
+    "babel-jest": "^26.3.0",
+    "eslint": "^7.9.0",
+    "jest": "^26.4.2",
+    "metro-react-native-babel-preset": "^0.63.0",
+    "react-test-renderer": "16.13.1"
+  },
+  "jest": {
+    "preset": "react-native"
+  }
+}

@@ -1,0 +1,38 @@
+require_relative '../node_modules/react-native/scripts/react_native_pods'
+require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
+
+platform :ios, '12.0'
+
+target 'AudioPoviedky' do
+  config = use_native_modules!
+
+  use_react_native!(:path => config["reactNativePath"])
+  use_modular_headers!
+  target 'audiopoviedkyTests' do
+    inherit! :complete
+    # Pods for testing
+  end
+
+  # Flipper is disabled — it does not build on modern Xcode (Flipper-Folly/libevent errors).
+  # use_flipper!
+  # post_install do |installer|
+  #   flipper_post_install(installer)
+  # end
+
+  post_install do |installer|
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '12.0'
+      end
+    end
+  end
+end
+
+# target 'audiopoviedky-tvOS' do
+#   # Pods for audiopoviedky-tvOS
+#
+#   target 'audiopoviedky-tvOSTests' do
+#     inherit! :search_paths
+#     # Pods for testing
+#   end
+# end
