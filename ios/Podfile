@@ -1,38 +1,34 @@
-require_relative '../node_modules/react-native/scripts/react_native_pods'
-require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
+# Resolve react_native_pods.rb with node to allow for hoisting
+require Pod::Executable.execute_command('node', ['-p',
+  'require.resolve(
+    "react-native/scripts/react_native_pods.rb",
+    {paths: [process.argv[1]]},
+  )', __dir__]).strip
 
-platform :ios, '12.0'
+platform :ios, min_ios_version_supported
+prepare_react_native_project!
 
-target 'AudioPoviedky' do
-  config = use_native_modules!
-
-  use_react_native!(:path => config["reactNativePath"])
-  use_modular_headers!
-  target 'audiopoviedkyTests' do
-    inherit! :complete
-    # Pods for testing
-  end
-
-  # Flipper is disabled — it does not build on modern Xcode (Flipper-Folly/libevent errors).
-  # use_flipper!
-  # post_install do |installer|
-  #   flipper_post_install(installer)
-  # end
-
-  post_install do |installer|
-    installer.pods_project.targets.each do |target|
-      target.build_configurations.each do |config|
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '12.0'
-      end
-    end
-  end
+linkage = ENV['USE_FRAMEWORKS']
+if linkage != nil
+  Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
+  use_frameworks! :linkage => linkage.to_sym
 end
 
-# target 'audiopoviedky-tvOS' do
-#   # Pods for audiopoviedky-tvOS
-#
-#   target 'audiopoviedky-tvOSTests' do
-#     inherit! :search_paths
-#     # Pods for testing
-#   end
-# end
+target 'audiopoviedky' do
+  config = use_native_modules!
+
+  use_react_native!(
+    :path => config[:reactNativePath],
+    # An absolute path to your application root.
+    :app_path => "#{Pod::Config.instance.installation_root}/.."
+  )
+
+  post_install do |installer|
+    react_native_post_install(
+      installer,
+      config[:reactNativePath],
+      :mac_catalyst_enabled => false,
+      # :ccache_enabled => true
+    )
+  end
+end
