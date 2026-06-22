@@ -22,8 +22,14 @@ export default class PersonItem extends Component {
   }
 
   render() {
-    const metaTags = JSON.parse(this.props.item.meta);
-    const contentWidth = Dimensions.get('window');
+    let metaTags = {};
+    try {
+      metaTags = JSON.parse(this.props.item.meta || '{}');
+    } catch (error) {
+      metaTags = {};
+    }
+    const descriptionHtml = metaTags.long_text;
+    const contentWidth = Dimensions.get('window').width;
     return (
       <View style={[styles.listItem, this.props.style]}>
         <TouchableOpacity
@@ -107,9 +113,12 @@ export default class PersonItem extends Component {
                 {this.props.item.content_count}
               </Text>
             </TouchableOpacity>
-            {this.state.isOpen && (
-              <HTML html={metaTags.long_text} contentWidth={contentWidth} />
-            )}
+            {this.state.isOpen && descriptionHtml ? (
+              <HTML
+                source={{html: String(descriptionHtml)}}
+                contentWidth={contentWidth}
+              />
+            ) : null}
           </View>
         </TouchableOpacity>
       </View>

@@ -9,6 +9,8 @@ import {
 } from 'react-native';
 import PersonItem from '../components/PersonItem';
 import AlphabetSectionList from 'react-native-alphabet-sectionlist';
+import {fetchJsonWithCache} from '../services/apiCache';
+import {cacheImages} from '../services/imageCache';
 
 const apiURL = 'https://audiopoviedky.sk/';
 
@@ -21,16 +23,18 @@ export default class PersonListScreen extends React.Component {
       sid: props.route.params.sid,
       dimensions: Dimensions.get('screen'),
       getHeight: this._getHeight(Dimensions.get('screen')),
+      artworkByPersonId: {},
     };
   }
 
-  componentDidMount = () => {
+  componentDidMount = async () => {
     const {route} = this.props;
+    const requestUrl = apiURL + route.params.url + '/?app';
     const headers = {
-      method: 'GET', // *GET, POST, PUT, DELETE, etc.
-      mode: 'no-cors', // no-cors, *cors, same-origin
-      cache: 'no-store', // *default, no-cache, reload, force-cache, only-if-cached
-      credentials: 'omit', // include, *same-origin, omit
+      method: 'GET',
+      mode: 'no-cors',
+      cache: 'no-store',
+      credentials: 'omit',
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
@@ -40,48 +44,55 @@ export default class PersonListScreen extends React.Component {
         Cookie: 'PHPSESSID=' + route.params.sid,
       },
     };
-    fetch(apiURL + route.params.url + '/?app', headers)
-      .then((response) => response.json())
-      .then((responseJson) => {
-        let alphas = responseJson.alpha;
-        let alphaPersons = {};
-        let personData =
-          route.params.url === 'autori'
-            ? responseJson.authors
-            : responseJson.interpreters;
-        alphas.forEach((value) => {
-          let letter = value.alpha;
-          alphaPersons[letter] = personData.filter((item) =>
-            item.surname.toLowerCase().startsWith(letter.toLowerCase()),
-          );
-          // console.log(
-          //   personData.filter((item) =>
-          //     item.surname.toLowerCase().startsWith(letter.toLowerCase()),
-          //   ),
-          // );
-        });
-        //console.log(alphaPersons);
-        this.setState({
-          persons: personData,
-          alphabetPersons: alphaPersons,
-        });
 
-        this.props.navigation.setOptions({
-          title: route.params.url === 'autori' ? 'Autori' : 'Interpreti',
-        });
-      })
-      .catch((error) => {
-        console.error(error);
+    try {
+      const responseJson = await fetchJsonWithCache(requestUrl, headers);
+      let alphas = responseJson.alpha;
+      let alphaPersons = {};
+      let personData =
+        route.params.url === 'autori'
+          ? responseJson.authors
+          : responseJson.interpreters;
+      alphas.forEach((value) => {
+        let letter = value.alpha;
+        alphaPersons[letter] = personData.filter((item) =>
+          item.surname.toLowerCase().startsWith(letter.toLowerCase()),
+        );
       });
+
+      const remoteArtworks = personData.map((person) =>
+        route.params.url === 'autori'
+          ? apiURL + 'data/' + person.id + '_author.png'
+          : apiURL + 'data/' + person.id + '_interpreter.png',
+      );
+      const artworkMap = await cacheImages(remoteArtworks);
+      const artworkByPersonId = {};
+      personData.forEach((person, index) => {
+        artworkByPersonId[person.id] =
+          artworkMap[remoteArtworks[index]] || remoteArtworks[index];
+      });
+
+      this.setState({
+        persons: personData,
+        alphabetPersons: alphaPersons,
+        artworkByPersonId,
+      });
+
+      this.props.navigation.setOptions({
+        title: route.params.url === 'autori' ? 'Autori' : 'Interpreti',
+      });
+    } catch (error) {
+      console.error(error);
+    }
   };
 
   renderItem = (item) => {
     const {route} = this.props;
-    //console.log(item);
     let artwork =
-      route.params.url === 'autori'
+      this.state.artworkByPersonId[item.id] ||
+      (route.params.url === 'autori'
         ? apiURL + 'data/' + item.id + '_author.png'
-        : apiURL + 'data/' + item.id + '_interpreter.png';
+        : apiURL + 'data/' + item.id + '_interpreter.png');
     return (
       <PersonItem
         item={item}

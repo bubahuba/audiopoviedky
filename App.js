@@ -1,8 +1,11 @@
-import React from 'react';
-import {StyleSheet, View} from 'react-native';
+import React, {useEffect, useState} from 'react';
+import {ActivityIndicator, StyleSheet, View} from 'react-native';
+import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {NavigationContainer} from '@react-navigation/native';
 import {createStackNavigator} from '@react-navigation/stack';
 import {createDrawerNavigator} from '@react-navigation/drawer';
+import {ensureInitialized, restoreLastPlaybackSession} from './src/services/globalPlayback';
+import {loadAuthSession} from './src/services/authStorage';
 
 import NakupyScreen from './src/screens/NakupyScreen';
 import LandingScreen from './src/screens/LandingScreen';
@@ -23,6 +26,46 @@ function DrawerContent(props) {
 }
 
 function AudiopoviedkyStack() {
+  const [authReady, setAuthReady] = useState(false);
+  const [homeParams, setHomeParams] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      await ensureInitialized();
+      await restoreLastPlaybackSession();
+      const session = await loadAuthSession();
+
+      if (cancelled) {
+        return;
+      }
+
+      if (session?.sid) {
+        setHomeParams({
+          url: 'nakupy',
+          sid: session.sid,
+          credentials: session.credentials,
+        });
+      }
+      setAuthReady(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!authReady) {
+    return (
+      <ActivityIndicator
+        size="large"
+        color="#261710"
+        style={styles.bootstrap}
+      />
+    );
+  }
+
   return (
     <Stack.Navigator
       screenOptions={() => ({
@@ -32,25 +75,23 @@ function AudiopoviedkyStack() {
         headerBackTitle: 'Späť',
         headerBackTitleStyle: styles.headerStyleBack,
       })}
-      initialRouteName="Landing"
-      //mode="modal"
+      initialRouteName={homeParams ? 'HomeScreen' : 'Landing'}
     >
       <Stack.Screen
         name="Landing"
         component={LandingScreen}
-        options={({navigation, route}) => ({
-          title: null,
-        })}
+        options={{
+          headerShown: false,
+        }}
       />
       <Stack.Screen
         name="HomeScreen"
         component={HomeScreen}
-        options={({navigation, route}) => ({
-          title: null,
-          headerLeft: () => <View style={styles.emptyButton} />,
-          headerRight: () => <View style={styles.emptyButton} />,
+        initialParams={homeParams ?? undefined}
+        options={{
+          headerShown: false,
           gestureEnabled: false,
-        })}
+        }}
       />
       <Stack.Screen
         name="register"
@@ -158,15 +199,20 @@ function AudiopoviedkyStack() {
 
 export default function App() {
   return (
-    <NavigationContainer>
-      <Drawer.Navigator drawerType="slide" drawerContent={DrawerContent}>
-        <Drawer.Screen
-          name="Home"
-          component={AudiopoviedkyStack}
-          initialParams={{user: 'me'}}
-        />
-      </Drawer.Navigator>
-    </NavigationContainer>
+    <SafeAreaProvider>
+      <NavigationContainer>
+        <Drawer.Navigator
+          drawerType="slide"
+          drawerContent={DrawerContent}
+          screenOptions={{headerShown: false}}>
+          <Drawer.Screen
+            name="Home"
+            component={AudiopoviedkyStack}
+            initialParams={{user: 'me'}}
+          />
+        </Drawer.Navigator>
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }
 const styles = StyleSheet.create({
@@ -192,5 +238,10 @@ const styles = StyleSheet.create({
   emptyButton: {
     width: 40,
     height: 40,
+  },
+  bootstrap: {
+    flex: 1,
+    justifyContent: 'center',
+    backgroundColor: '#c7a7a2',
   },
 });

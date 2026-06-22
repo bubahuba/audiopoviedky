@@ -1,5 +1,4 @@
-/* eslint-disable react-hooks/rules-of-hooks */
-import React, {Component, useRef} from 'react';
+import React, {Component} from 'react';
 import {
   StyleSheet,
   Text,
@@ -10,8 +9,14 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import {Button} from 'react-native-elements';
+import {SafeAreaView} from 'react-native-safe-area-context';
 
-import AsyncStorage from '@react-native-community/async-storage';
+import {
+  saveAuthSession,
+  loadAuthSession,
+  clearAuthSession,
+} from '../services/authStorage';
+import {fetchJsonWithCache} from '../services/apiCache';
 
 const Divider = (props) => {
   return <View style={[styles.divider, props.style]} />;
@@ -20,6 +25,8 @@ const Divider = (props) => {
 export default class DrawerScreen extends Component {
   constructor(props) {
     super(props);
+    this.emailInputRef = React.createRef();
+    this.passwordInputRef = React.createRef();
     this.state = {
       credentials: {
         email: '',
@@ -50,9 +57,8 @@ export default class DrawerScreen extends Component {
     const {credentials} = this.state;
     credentials.passw = value;
   };
-  LoginForm = () => {
+  renderLoginForm = () => {
     if (!this.state.sid) {
-      const ref_passw = useRef();
       return (
         <>
           <TextInput
@@ -64,11 +70,9 @@ export default class DrawerScreen extends Component {
             keyboardType="email-address"
             returnKeyType="next"
             onSubmitEditing={() => {
-              ref_passw.current.focus();
+              this.passwordInputRef.current?.focus();
             }}
-            ref={(c) => {
-              this.inputEmail = c;
-            }}
+            ref={this.emailInputRef}
             onFocus={this.focusedInput}
             onBlur={this.blurredInput}
           />
@@ -79,7 +83,7 @@ export default class DrawerScreen extends Component {
             onChangeText={(value) => this.setPass(value)}
             autoCapitalize="none"
             placeholderTextColor="#261710"
-            ref={ref_passw}
+            ref={this.passwordInputRef}
             returnKeyType={'go'}
             onSubmitEditing={() => this.goLogin()}
             onFocus={this.focusedInput}
@@ -110,7 +114,7 @@ export default class DrawerScreen extends Component {
           <Text
             style={[styles.header]}
             onPress={() =>
-              this.props.navigation.navigate('HomeScreen', {
+              this.navigateToStack('HomeScreen', {
                 url: 'nakupy',
                 sid: this.state.sid,
                 credentials: this.state.credentials,
@@ -132,78 +136,86 @@ export default class DrawerScreen extends Component {
     const {navigation} = this.props;
     let formData = this.state.credentials;
     let url = 'https://audiopoviedky.sk/prihlasenie?app';
-    //console.log(formData);
     this.setState({isLoading: true});
-    await fetch(url, {
-      method: 'POST', // *GET, POST, PUT, DELETE, etc.
-      mode: 'cors', // no-cors, *cors, same-origin
-      cache: 'no-cache', // *default, no-cache, reload, force-cache, only-if-cached
-      credentials: 'include', // include, *same-origin, omit
-      headers: {
-        'Content-type': 'application/x-www-form-urlencoded',
-      },
-      body: 'email=' + formData.email + '&passw=' + formData.passw,
-      //redirect: 'follow', // manual, *follow, error
-      //referrerPolicy: 'no-referrer', // no-referrer, *no-referrer-when-downgrade, origin, origin-when-cross-origin, same-origin, strict-origin, strict-origin-when-cross-origin, unsafe-url
-      //body: JSON.stringify(formData), // body data type must match "Content-Type" header
-    })
-      .then(async (res) => await res.json())
-      .then(async (resJson) => {
-        await this.setState(resJson, () => {
-          this.state.sid &&
-            navigation.navigate('HomeScreen', {
+
+    try {
+      const resJson = await fetchJsonWithCache(url, {
+        method: 'POST',
+        mode: 'cors',
+        cache: 'no-cache',
+        credentials: 'include',
+        headers: {
+          'Content-type': 'application/x-www-form-urlencoded',
+        },
+        body: 'email=' + formData.email + '&passw=' + formData.passw,
+      });
+
+      await this.setState(resJson, async () => {
+        if (this.state.sid) {
+          await saveAuthSession({
+            sid: this.state.sid,
+            credentials: this.state.credentials,
+          });
+          navigation.navigate('Home', {
+            screen: 'HomeScreen',
+            params: {
               url: 'nakupy',
               sid: this.state.sid,
               credentials: this.state.credentials,
-            });
-          this.setState({isLoading: false});
-        });
-        const items = [
-          ['@loginEmail', this.state.credentials.email],
-          ['@loginPass', this.state.credentials.passw],
-        ];
-        await AsyncStorage.multiSet(items);
-      })
-      .catch((error) => {
-        console.error(error);
+            },
+          });
+          navigation.closeDrawer();
+        }
+        this.setState({isLoading: false});
       });
+    } catch (error) {
+      console.error(error);
+      this.setState({isLoading: false});
+    }
   };
   componentDidMount = async () => {
-    await AsyncStorage.multiGet(['@loginEmail', '@loginPass'], this.cb);
-  };
-  cb = (err, data) => {
-    if (err) {
-      console.log(err.stack);
+    const session = await loadAuthSession();
+    if (session?.sid) {
+      this.setState({
+        sid: session.sid,
+        credentials: session.credentials,
+      });
+      return;
     }
-    //console.log(data, "from storage")
-    if (data[0][1]) {
-      this.setName(data[0][1]);
-      this.setPass(data[1][1]);
+
+    if (session?.credentials?.email) {
+      this.setName(session.credentials.email);
+      this.setPass(session.credentials.passw);
       this.goLogin();
-    } else {
-      AsyncStorage.getAllKeys().then((keys) => AsyncStorage.multiRemove(keys));
     }
   };
+  navigateToStack = (screen, params) => {
+    const {navigation} = this.props;
+    navigation.navigate('Home', {screen, params});
+    navigation.closeDrawer();
+  };
+
   logOut = async () => {
     let url = 'https://audiopoviedky.sk/prihlasenie/odhlasenie?app';
-    fetch(url);
+    fetch(url).catch(() => {});
     const {credentials} = this.state;
     credentials.email = credentials.passw = '';
+    await clearAuthSession();
     this.setState({sid: null}, () => {
-      AsyncStorage.getAllKeys().then((keys) => AsyncStorage.multiRemove(keys));
-      this.props.navigation.navigate('Landing');
+      this.navigateToStack('Landing');
     });
   };
   render() {
     return (
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.contentContainer}>
-        <this.LoginForm />
-        <View style={styles.empty} />
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.contentContainer}>
+          {this.renderLoginForm()}
+          <View style={styles.empty} />
         <TouchableOpacity
           onPress={() =>
-            this.props.navigation.navigate('najnovsie', {
+            this.navigateToStack('najnovsie', {
               url: 'audio',
               sid: this.state.sid,
             })
@@ -214,7 +226,7 @@ export default class DrawerScreen extends Component {
         <Divider />
         <TouchableOpacity
           onPress={() =>
-            this.props.navigation.navigate('najpopularnejsie', {
+            this.navigateToStack('najpopularnejsie', {
               url: 'audio/najpopularnejsie',
               sid: this.state.sid,
             })
@@ -225,7 +237,7 @@ export default class DrawerScreen extends Component {
         <Divider />
         <TouchableOpacity
           onPress={() =>
-            this.props.navigation.navigate('najkratsie', {
+            this.navigateToStack('najkratsie', {
               url: 'audio/najkratsie',
               sid: this.state.sid,
             })
@@ -236,7 +248,7 @@ export default class DrawerScreen extends Component {
         <Divider />
         <TouchableOpacity
           onPress={() =>
-            this.props.navigation.navigate('najdlhsie', {
+            this.navigateToStack('najdlhsie', {
               url: 'audio/najdlhsie',
               sid: this.state.sid,
             })
@@ -247,7 +259,7 @@ export default class DrawerScreen extends Component {
         <Divider />
         <TouchableOpacity
           onPress={() =>
-            this.props.navigation.navigate('person_list', {
+            this.navigateToStack('person_list', {
               url: 'autori',
               sid: this.state.sid,
             })
@@ -258,7 +270,7 @@ export default class DrawerScreen extends Component {
         <Divider />
         <TouchableOpacity
           onPress={() =>
-            this.props.navigation.navigate('person_list', {
+            this.navigateToStack('person_list', {
               url: 'interpreti',
               sid: this.state.sid,
             })
@@ -269,7 +281,7 @@ export default class DrawerScreen extends Component {
         <Divider />
         <TouchableOpacity
           onPress={() =>
-            this.props.navigation.navigate('category_list', {
+            this.navigateToStack('category_list', {
               url: 'kategorie',
               sid: this.state.sid,
             })
@@ -277,7 +289,8 @@ export default class DrawerScreen extends Component {
           style={styles.textHolder}>
           <Text style={styles.textline}>Knižné série</Text>
         </TouchableOpacity>
-      </ScrollView>
+        </ScrollView>
+      </SafeAreaView>
     );
   }
 }
@@ -305,10 +318,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#c7a7a2',
     flex: 1,
   },
+  scroll: {
+    flex: 1,
+  },
   contentContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 40,
+    paddingVertical: 20,
+    paddingBottom: 24,
   },
   button: {
     marginVertical: 10,

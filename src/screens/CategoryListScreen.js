@@ -7,6 +7,7 @@ import {
   Dimensions,
 } from 'react-native';
 import CategoryItem from '../components/CategoryItem';
+import {fetchJsonWithCache} from '../services/apiCache';
 
 const apiURL = 'https://audiopoviedky.sk/';
 
@@ -21,33 +22,33 @@ export default class PersonListScreen extends React.Component {
     };
   }
 
-  componentDidMount = () => {
+  componentDidMount = async () => {
     const {route} = this.props;
-    fetch(apiURL + route.params.url + '?app', {
-      method: 'GET', // *GET, POST, PUT, DELETE, etc.
-      mode: 'no-cors', // no-cors, *cors, same-origin
-      cache: 'no-store', // *default, no-cache, reload, force-cache, only-if-cached
-      credentials: 'include', // include, *same-origin, omit
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        Pragma: 'no-cache',
-        Expires: 0,
-        Cookie: 'PHPSESSID=' + route.params.sid,
-      },
-    })
-      .then((response) => response.json())
-      .then((responseJson) => {
-        this.setState({categories: responseJson.categories});
+    const requestUrl = apiURL + route.params.url + '?app';
 
-        this.props.navigation.setOptions({
-          title: 'Knižné série',
-        });
-      })
-      .catch((error) => {
-        console.error(error);
+    try {
+      const responseJson = await fetchJsonWithCache(requestUrl, {
+        method: 'GET',
+        mode: 'no-cors',
+        cache: 'no-store',
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache',
+          Expires: 0,
+          Cookie: 'PHPSESSID=' + route.params.sid,
+        },
       });
+      this.setState({categories: responseJson.categories});
+
+      this.props.navigation.setOptions({
+        title: 'Knižné série',
+      });
+    } catch (error) {
+      console.error(error);
+    }
   };
 
   renderItem = (item, index) => {

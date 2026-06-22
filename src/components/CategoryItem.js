@@ -9,6 +9,7 @@ import {
   Dimensions,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import {formatDurationSk} from '../services';
 
 export default class CategoryItem extends Component {
   constructor(props) {
@@ -18,18 +19,7 @@ export default class CategoryItem extends Component {
       dimensions: Dimensions.get('screen'),
     };
   }
-  secondsToHms = (d) => {
-    d = Number(d);
-    var h = Math.floor(d / 3600);
-    var m = Math.floor((d % 3600) / 60);
-    //var s = Math.floor((d % 3600) % 60);
-
-    var hDisplay = h > 0 ? h + (h === 1 ? ' hodina ' : ' hodiny ') : '';
-    var mDisplay =
-      m > 0 ? m + (m === 1 ? ' minúta' : m < 5 ? ' minúty' : ' minút') : '';
-    //var sDisplay = s > 0 ? s + (s === 1 ? 's' : 's') : '';
-    return hDisplay + mDisplay;
-  };
+  secondsToHms = (d) => formatDurationSk(d);
 
   render() {
     //const metaTags = JSON.parse(this.props.item.meta);

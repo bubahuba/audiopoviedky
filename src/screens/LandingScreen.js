@@ -8,11 +8,14 @@ import {
   ScrollView,
 } from 'react-native';
 import {Button} from 'react-native-elements';
+import {SafeAreaView} from 'react-native-safe-area-context';
 
 export default class LandingScreen extends Component {
   render() {
     return (
-      <ScrollView contentContainerStyle={styles.container} style={styles.cont}>
+      <SafeAreaView style={styles.cont} edges={['bottom']}>
+        <ScrollView contentContainerStyle={styles.container}>
+        <SafeAreaView edges={['top']} style={styles.headerSafeArea}>
         <TouchableOpacity
           onPress={() => this.props.navigation.toggleDrawer()}
           style={styles.headerStyle}>
@@ -22,6 +25,7 @@ export default class LandingScreen extends Component {
           />
           <Text style={styles.headerTextStyle}>Audiopoviedky.sk</Text>
         </TouchableOpacity>
+        </SafeAreaView>
         <View style={styles.predplatne}>
           <Button
             titleStyle={styles.buttonTextStyle}
@@ -43,7 +47,8 @@ export default class LandingScreen extends Component {
             Vytvoriť konto
           </Text>
         </View>
-      </ScrollView>
+        </ScrollView>
+      </SafeAreaView>
     );
   }
 }
@@ -115,6 +120,9 @@ const styles = StyleSheet.create({
     fontFamily: 'Comfortaa',
     fontSize: 20,
     color: '#c7a7a2',
+  },
+  headerSafeArea: {
+    backgroundColor: '#271809',
   },
   headerStyle: {
     flex: 1,

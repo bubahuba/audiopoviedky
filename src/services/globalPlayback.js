@@ -1,0 +1,478 @@
+import {AppState} from 'react-native';
+import TrackPlayer, {State} from 'react-native-track-player';
+import {buildTrackLists} from './audioList';
+import {cacheImages} from './imageCache';
+import {setupTrackPlayer} from './trackPlayerSetup';
+import {
+  loadPlaybackPosition,
+  savePlaybackPosition,
+} from './playbackPosition';
+import {
+  loadPlaybackSession,
+  savePlaybackSession,
+} from './playbackSession';
+
+const listeners = new Set();
+let initialized = false;
+let sessionRestored = false;
+let positionSaveTimer = null;
+let sessionPersistTimer = null;
+let appStateSubscription = null;
+
+let state = {
+  audio: [],
+  trackList: [],
+  trackListArtworks: [],
+  listKey: null,
+  nowPlayingId: null,
+  isPaused: true,
+};
+
+function emit() {
+  const snapshot = {...state};
+  listeners.forEach((listener) => listener(snapshot));
+}
+
+function setState(partial) {
+  state = {...state, ...partial};
+  emit();
+
+  if (
+    'nowPlayingId' in partial ||
+    'isPaused' in partial ||
+    'audio' in partial ||
+    'listKey' in partial ||
+    'trackListArtworks' in partial
+  ) {
+    schedulePersistSession();
+  }
+}
+
+function schedulePersistSession() {
+  clearTimeout(sessionPersistTimer);
+  sessionPersistTimer = setTimeout(() => {
+    persistCurrentSession();
+  }, 300);
+}
+
+async function persistCurrentSession() {
+  if (!state.nowPlayingId || !state.audio.length) {
+    await savePlaybackSession(null);
+    return;
+  }
+
+  await saveCurrentPosition();
+
+  await savePlaybackSession({
+    listKey: state.listKey,
+    nowPlayingId: state.nowPlayingId,
+    isPaused: state.isPaused,
+    audio: state.audio,
+    trackListArtworks: state.trackListArtworks,
+  });
+}
+
+function bindAppStatePersistence() {
+  if (appStateSubscription) {
+    return;
+  }
+
+  appStateSubscription = AppState.addEventListener('change', (nextState) => {
+    if (nextState === 'background' || nextState === 'inactive') {
+      persistCurrentSession();
+    }
+  });
+}
+
+export function subscribe(listener) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+export function getPlaybackState() {
+  return {...state};
+}
+
+export function hasActiveTrack() {
+  return state.nowPlayingId !== null;
+}
+
+export function getCurrentTrackInfo() {
+  if (!state.nowPlayingId) {
+    return null;
+  }
+
+  const track = state.trackList.find((entry) => entry.id === state.nowPlayingId);
+  if (!track) {
+    return null;
+  }
+
+  const artworkEntry = state.trackListArtworks[track.index];
+  const item = state.audio[track.index];
+
+  return {
+    track,
+    artwork: artworkEntry?.artwork,
+    item,
+    index: track.index,
+  };
+}
+
+function findTrackByIndex(index) {
+  return state.trackList.find((entry) => entry.index === index);
+}
+
+function findQueueIndex(trackId) {
+  return state.trackList.findIndex((entry) => entry.id === trackId);
+}
+
+function findNextPlayableIndex(startIndex) {
+  for (let index = startIndex; index < state.audio.length; index += 1) {
+    if (findTrackByIndex(index)) {
+      return index;
+    }
+  }
+  return null;
+}
+
+async function waitUntilReady() {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 5000) {
+    const {state: playerState} = await TrackPlayer.getPlaybackState();
+    if (
+      playerState !== State.Buffering &&
+      playerState !== State.Loading &&
+      playerState !== State.None
+    ) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+}
+
+async function saveCurrentPosition() {
+  try {
+    const activeTrack = await TrackPlayer.getActiveTrack();
+    if (!activeTrack?.id) {
+      return;
+    }
+    const position = await TrackPlayer.getPosition();
+    await savePlaybackPosition(activeTrack.id, position);
+  } catch (error) {
+    // Ignore save errors while the player is resetting.
+  }
+}
+
+function startPositionSaving() {
+  clearInterval(positionSaveTimer);
+  positionSaveTimer = setInterval(() => {
+    if (!state.isPaused && state.nowPlayingId) {
+      saveCurrentPosition();
+    }
+  }, 5000);
+}
+
+function stopPositionSaving() {
+  clearInterval(positionSaveTimer);
+  positionSaveTimer = null;
+}
+
+async function syncNowPlayingFromPlayer() {
+  const activeTrack = await TrackPlayer.getActiveTrack();
+  if (!activeTrack?.id) {
+    return;
+  }
+
+  const track = state.trackList.find((entry) => entry.id === activeTrack.id);
+  if (track) {
+    setState({nowPlayingId: track.id});
+  }
+}
+
+async function handleTrackEnded() {
+  if (!state.nowPlayingId) {
+    return;
+  }
+
+  const currentTrack = state.trackList.find(
+    (entry) => entry.id === state.nowPlayingId,
+  );
+  if (!currentTrack) {
+    return;
+  }
+
+  await savePlaybackPosition(state.nowPlayingId, 0);
+
+  const nextIndex = findNextPlayableIndex(currentTrack.index + 1);
+  if (nextIndex === null) {
+    setState({isPaused: true});
+    return;
+  }
+
+  await playTrackAtIndex(nextIndex);
+}
+
+async function bindPlayerEvents() {
+  TrackPlayer.addEventListener('remote-play', () => {
+    setState({isPaused: false});
+    startPositionSaving();
+  });
+
+  TrackPlayer.addEventListener('remote-pause', () => {
+    setState({isPaused: true});
+    stopPositionSaving();
+    saveCurrentPosition();
+  });
+
+  TrackPlayer.addEventListener('playback-state', async (event) => {
+    const playerState = event.state;
+
+    if (playerState === State.Playing) {
+      setState({isPaused: false});
+      startPositionSaving();
+      return;
+    }
+
+    if (playerState === State.Paused) {
+      setState({isPaused: true});
+      stopPositionSaving();
+      await saveCurrentPosition();
+    }
+  });
+
+  TrackPlayer.addEventListener('playback-active-track-changed', async () => {
+    await syncNowPlayingFromPlayer();
+    if (!state.isPaused) {
+      startPositionSaving();
+    }
+  });
+
+  TrackPlayer.addEventListener('playback-queue-ended', async () => {
+    stopPositionSaving();
+    await handleTrackEnded();
+  });
+}
+
+export async function ensureInitialized() {
+  if (initialized) {
+    return;
+  }
+
+  initialized = true;
+  await setupTrackPlayer();
+  await bindPlayerEvents();
+  bindAppStatePersistence();
+}
+
+export async function restoreLastPlaybackSession() {
+  if (sessionRestored) {
+    return state.nowPlayingId !== null;
+  }
+
+  sessionRestored = true;
+  const session = await loadPlaybackSession();
+  if (!session?.nowPlayingId || !Array.isArray(session.audio) || !session.audio.length) {
+    return false;
+  }
+
+  await ensureInitialized();
+
+  const trackExists = session.audio.some(
+    (item) => String(item.id) === String(session.nowPlayingId),
+  );
+  if (!trackExists) {
+    return false;
+  }
+
+  const {trackList, trackListArtworks} = await buildTrackLists(session.audio);
+  const playableTrack = trackList.find(
+    (entry) => String(entry.id) === String(session.nowPlayingId),
+  );
+  if (!playableTrack) {
+    return false;
+  }
+
+  const artworkMap = await cacheImages(
+    trackListArtworks.map((entry) => entry.artwork),
+  );
+  const cachedArtworks = trackListArtworks.map((entry) => ({
+    ...entry,
+    artwork: artworkMap[entry.artwork] || entry.artwork,
+  }));
+
+  await TrackPlayer.reset();
+  if (trackList.length) {
+    await TrackPlayer.add(trackList);
+  }
+
+  const queueIndex = trackList.findIndex(
+    (entry) => String(entry.id) === String(session.nowPlayingId),
+  );
+  if (queueIndex < 0) {
+    return false;
+  }
+
+  const savedPosition = await loadPlaybackPosition(session.nowPlayingId);
+  const initialPosition =
+    savedPosition > 0 &&
+    playableTrack.duration &&
+    savedPosition < playableTrack.duration - 5
+      ? savedPosition
+      : 0;
+
+  await TrackPlayer.skip(queueIndex, initialPosition);
+
+  setState({
+    audio: session.audio,
+    trackList,
+    trackListArtworks: cachedArtworks,
+    listKey: session.listKey ?? null,
+    nowPlayingId: playableTrack.id,
+    isPaused: true,
+  });
+
+  return true;
+}
+
+export async function setList(listKey, audio, trackList, trackListArtworks) {
+  await ensureInitialized();
+
+  const previousListKey = state.listKey;
+  setState({audio, trackList, trackListArtworks, listKey});
+
+  const queue = await TrackPlayer.getQueue();
+  if (queue.length > 0 && previousListKey === listKey) {
+    await syncNowPlayingFromPlayer();
+    return;
+  }
+
+  if (queue.length > 0 && state.nowPlayingId) {
+    return;
+  }
+
+  await TrackPlayer.reset();
+  if (trackList.length) {
+    await TrackPlayer.add(trackList);
+  }
+}
+
+export async function refreshTracks(audio, trackList, trackListArtworks) {
+  await ensureInitialized();
+
+  const currentTrackId = state.nowPlayingId;
+  let currentPosition = 0;
+  let wasPlaying = !state.isPaused;
+
+  if (currentTrackId) {
+    currentPosition = await TrackPlayer.getPosition();
+    await savePlaybackPosition(currentTrackId, currentPosition);
+  }
+
+  setState({audio, trackList, trackListArtworks});
+  await TrackPlayer.reset();
+
+  if (trackList.length) {
+    await TrackPlayer.add(trackList);
+  }
+
+  if (!currentTrackId) {
+    return;
+  }
+
+  const restoredTrack = trackList.find((entry) => entry.id === currentTrackId);
+  if (!restoredTrack) {
+    setState({nowPlayingId: null, isPaused: true});
+    return;
+  }
+
+  const queueIndex = findQueueIndex(currentTrackId);
+  if (queueIndex < 0) {
+    return;
+  }
+
+  await TrackPlayer.skip(queueIndex, currentPosition);
+  if (wasPlaying) {
+    await TrackPlayer.play();
+    setState({nowPlayingId: currentTrackId, isPaused: false});
+  } else {
+    setState({nowPlayingId: currentTrackId, isPaused: true});
+  }
+}
+
+export async function playTrackAtIndex(index, navigation) {
+  await ensureInitialized();
+
+  const track = findTrackByIndex(index);
+  if (!track) {
+    return;
+  }
+
+  if (state.nowPlayingId === track.id) {
+    if (state.isPaused) {
+      await TrackPlayer.play();
+      setState({isPaused: false});
+      startPositionSaving();
+    } else {
+      await TrackPlayer.pause();
+      setState({isPaused: true});
+      stopPositionSaving();
+      await saveCurrentPosition();
+    }
+    return;
+  }
+
+  await saveCurrentPosition();
+
+  await TrackPlayer.reset();
+  if (state.trackList.length) {
+    await TrackPlayer.add(state.trackList);
+  }
+
+  const queueIndex = findQueueIndex(track.id);
+  if (queueIndex < 0) {
+    return;
+  }
+
+  const savedPosition = await loadPlaybackPosition(track.id);
+  const initialPosition =
+    savedPosition > 0 &&
+    track.duration &&
+    savedPosition < track.duration - 5
+      ? savedPosition
+      : -1;
+
+  await TrackPlayer.skip(queueIndex, initialPosition);
+  await waitUntilReady();
+
+  await TrackPlayer.play();
+  setState({nowPlayingId: track.id, isPaused: false});
+  startPositionSaving();
+
+  if (navigation?.setOptions) {
+    navigation.setOptions({title: track.title});
+  }
+}
+
+export async function seekTo(seconds) {
+  await TrackPlayer.seekTo(seconds);
+  if (state.nowPlayingId) {
+    await savePlaybackPosition(state.nowPlayingId, seconds);
+  }
+}
+
+export async function togglePlayback() {
+  if (!state.nowPlayingId) {
+    return;
+  }
+
+  if (state.isPaused) {
+    await TrackPlayer.play();
+    setState({isPaused: false});
+    startPositionSaving();
+  } else {
+    await TrackPlayer.pause();
+    setState({isPaused: true});
+    stopPositionSaving();
+    await saveCurrentPosition();
+  }
+}

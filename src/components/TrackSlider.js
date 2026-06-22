@@ -1,112 +1,105 @@
-import React from 'react';
-import TrackPlayer from 'react-native-track-player';
+import React, {useState} from 'react';
+import {useProgress} from 'react-native-track-player';
 import {Text, View, StyleSheet} from 'react-native';
 import Slider from '@react-native-community/slider';
-export default class TrackSlider extends TrackPlayer.ProgressComponent {
-  state = {
-    duration: 0,
-    position: 0,
-    isSeeking: false,
-    seek: 0,
-  };
-  shouldComponentUpdate(nextProps, nextState) {
-    const {
-      duration: prevDuration,
-      position: prevPosition,
-      bufferedPosition: prevBufferedPosition,
-    } = this.state;
-    const {
-      duration: nextDuration,
-      position: nextPosition,
-      bufferedPosition: nextBufferedPosition,
-    } = nextState;
-    if (
-      prevDuration !== nextDuration ||
-      prevPosition !== nextPosition ||
-      prevBufferedPosition !== nextBufferedPosition
-    ) {
-      return true;
-    }
-    return false;
-  }
-  formatTime = (timeInSec) => {
-    let mins = parseInt(timeInSec / 60, 10);
-    let secs = parseInt(Math.round((timeInSec % 60) * 100) / 100, 10);
-    if (mins < 10) {
-      mins = '0' + mins;
-    }
-    if (secs < 10) {
-      secs = '0' + secs;
-    }
-    return mins + ':' + secs;
-  };
+import {PLAYBACK_PROGRESS_UPDATE_MS} from '../utils/playbackProgress';
 
-  render() {
-    return (
-      <View style={styles.container}>
-        <View style={styles.timeContainer}>
-          <Text style={styles.position} numberOfLines={1}>
-            {this.formatTime(this.state.position)}
-          </Text>
-          <Slider
-            style={styles.slider}
-            value={this.state.isSeeking ? this.seek : this.state.position}
-            thumbTintColor="black"
-            minimumValue={0}
-            thumbStyle={styles.thumbStyle}
-            animationType="timing"
-            maximumValue={this.state.duration}
-            minimumTrackTintColor={'black'}
-            maximumTrackTintColor={'rgba(0,0,0,0.2)'}
-            onValueChange={(val) => {
-              //TrackPlayer.pause();
-              this.setState({isSeeking: true, seek: val});
-            }}
-            onSlidingComplete={(val) => {
-              //console.log(val);
-              this.props.moveTo(val);
-              this.setState({value: val});
-            }}
-          />
-          <Text style={styles.duration} numberOfLines={1}>
-            {this.formatTime(this.state.duration - this.state.position)}
-          </Text>
-        </View>
-      </View>
-    );
+function formatTime(timeInSec) {
+  if (!Number.isFinite(timeInSec) || timeInSec < 0) {
+    return '00:00';
   }
+  let mins = parseInt(timeInSec / 60, 10);
+  let secs = parseInt(Math.round(timeInSec % 60), 10);
+  if (mins < 10) {
+    mins = '0' + mins;
+  }
+  if (secs < 10) {
+    secs = '0' + secs;
+  }
+  return mins + ':' + secs;
+}
+
+export default function TrackSlider({
+  moveTo,
+  fallbackDuration = 0,
+  horizontalInset = 0,
+}) {
+  const {position, duration} = useProgress(PLAYBACK_PROGRESS_UPDATE_MS);
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [seek, setSeek] = useState(0);
+  const totalDuration = duration > 0 ? duration : fallbackDuration;
+  const safeMaximum = totalDuration > 0 ? totalDuration : 1;
+  const displayPosition = isSeeking ? seek : position;
+  const remaining = Math.max(totalDuration - displayPosition, 0);
+
+  return (
+    <View
+      style={[
+        styles.container,
+        horizontalInset > 0 && {paddingHorizontal: 8 + horizontalInset},
+      ]}>
+      <View style={styles.timeContainer}>
+        <Text style={styles.position} numberOfLines={1}>
+          {formatTime(displayPosition)}
+        </Text>
+        <Slider
+          style={styles.slider}
+          value={Math.min(displayPosition, safeMaximum)}
+          thumbTintColor="#271809"
+          minimumValue={0}
+          maximumValue={safeMaximum}
+          minimumTrackTintColor="#271809"
+          maximumTrackTintColor="rgba(39, 24, 9, 0.2)"
+          onValueChange={(val) => {
+            setIsSeeking(true);
+            setSeek(val);
+          }}
+          onSlidingComplete={(val) => {
+            moveTo(val);
+            setIsSeeking(false);
+          }}
+        />
+        <Text style={styles.duration} numberOfLines={1}>
+          {formatTime(remaining)}
+        </Text>
+      </View>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
     backgroundColor: '#c7a7a2',
-    justifyContent: 'center',
-    color: 'black',
-  },
-  thumbStyle: {
-    width: 10,
-    height: 10,
+    paddingHorizontal: 8,
+    paddingTop: 4,
+    paddingBottom: 10,
+    minHeight: 44,
   },
   position: {
-    color: 'black',
+    color: '#271809',
     textAlign: 'left',
+    fontFamily: 'Comfortaa',
+    fontSize: 12,
+    minWidth: 44,
+    width: 44,
   },
   duration: {
-    color: 'black',
+    color: '#271809',
     textAlign: 'right',
+    fontFamily: 'Comfortaa',
+    fontSize: 12,
+    minWidth: 44,
+    width: 44,
   },
   timeContainer: {
     alignItems: 'center',
-    color: 'black',
-    flex: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 5,
+    minHeight: 40,
   },
   slider: {
-    marginLeft: 10,
-    marginRight: 10,
     flex: 1,
+    height: 40,
+    marginHorizontal: 8,
   },
 });
