@@ -11,6 +11,30 @@ export const jsCoreDateCreator = (dateString: string): Date => {
   return new Date(year, month, day, hour, minute, second);
 };
 
+export function isSubscriptionActive(
+  duration: string,
+  now = new Date(),
+): boolean {
+  const expiry = jsCoreDateCreator(duration);
+  if (Number.isNaN(expiry.getTime())) {
+    return false;
+  }
+
+  const hasTime = duration.split(/[\s-:]/).length > 3;
+  const expiryMoment = hasTime
+    ? expiry
+    : new Date(
+        expiry.getFullYear(),
+        expiry.getMonth(),
+        expiry.getDate(),
+        23,
+        59,
+        59,
+        999,
+      );
+  return expiryMoment >= now;
+}
+
 export function isAudioPlayable(
   item: Pick<AudioTrack, 'file' | 'duration' | 'date'> | null | undefined,
 ): boolean {

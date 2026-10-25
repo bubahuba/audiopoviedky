@@ -12,13 +12,9 @@ import {
 import {Button} from 'react-native-elements';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import type {DrawerContentComponentProps} from '@react-navigation/drawer';
-import {
-  saveAuthSession,
-  loadAuthSession,
-  clearAuthSession,
-} from '../services/authStorage';
-import {fetchJsonWithCache} from '../services/apiCache';
-import {API_URL, type LoginResponse} from '../types/api';
+import {clearAuthSession, loadAuthSession, saveAuthSession} from '../services/authStorage';
+import {ensureFreshAuthSession, loginWithCredentials} from '../services/auth';
+import {API_URL} from '../types/api';
 import type {Credentials} from '../types/auth';
 import type {RootStackParamList} from '../types/navigation';
 
@@ -162,21 +158,10 @@ export default class DrawerScreen extends Component<Props, DrawerScreenState> {
   goLogin = async () => {
     const {navigation} = this.props;
     const formData = this.state.credentials;
-    const url = `${API_URL}prihlasenie?app`;
     this.setState({isLoading: true});
 
     try {
-      const resJson = await fetchJsonWithCache<LoginResponse>(url, {
-        method: 'POST',
-        mode: 'cors',
-        credentials: 'include',
-        headers: {
-          'Content-type': 'application/x-www-form-urlencoded',
-        },
-        body: 'email=' + formData.email + '&passw=' + formData.passw,
-      });
-
-      const sid = resJson.sid ?? null;
+      const sid = await loginWithCredentials(formData);
       this.setState({sid}, async () => {
         if (sid) {
           await saveAuthSession({
@@ -203,18 +188,18 @@ export default class DrawerScreen extends Component<Props, DrawerScreenState> {
 
   componentDidMount = async () => {
     const session = await loadAuthSession();
-    if (session?.sid) {
-      this.setState({
-        sid: session.sid,
-        credentials: session.credentials,
-      });
-      return;
-    }
-
     if (session?.credentials?.email) {
+      this.setState({credentials: session.credentials});
       this.setName(session.credentials.email);
       this.setPass(session.credentials.passw);
-      this.goLogin();
+    }
+
+    const freshSession = await ensureFreshAuthSession();
+    if (freshSession?.sid) {
+      this.setState({
+        sid: freshSession.sid,
+        credentials: freshSession.credentials,
+      });
     }
   };
 

@@ -9,9 +9,10 @@ import {
   Dimensions,
   type ScaledSize,
 } from 'react-native';
-import {Icon, Button} from 'react-native-elements';
+import {Button} from 'react-native-elements';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {jsCoreDateCreator} from '../services';
+import {isSubscriptionActive, jsCoreDateCreator} from '../services';
 import {fetchJsonWithCache} from '../services/apiCache';
 import HomeGlobalPlayer from '../components/HomeGlobalPlayer';
 import {
@@ -71,14 +72,11 @@ export default class HomeScreen extends Component<Props, HomeScreenState> {
     )
       .then((responseJson) => {
         if (responseJson.stream?.length) {
-          this.setState({stream: responseJson.stream[0]}, () => {
-            const now = new Date(Date.now());
-            const stream = this.state.stream;
-            if (!stream) {
-              return;
-            }
-            const paid = jsCoreDateCreator(stream.duration);
-            this.setState({isPaid: paid > now, isLoading: false});
+          const stream = responseJson.stream[0];
+          this.setState({
+            stream,
+            isPaid: isSubscriptionActive(stream.duration),
+            isLoading: false,
           });
         } else {
           this.setState({isPaid: false, isLoading: false});
@@ -183,12 +181,7 @@ export default class HomeScreen extends Component<Props, HomeScreenState> {
                       styles.statusCard,
                       isLandscape && styles.statusCardLandscape,
                     ]}>
-                    <Icon
-                      name="check-circle"
-                      type="material"
-                      color="#2e7d32"
-                      size={56}
-                    />
+                    <Icon name="check-circle" color="#2e7d32" size={56} />
                     <View style={styles.statusTextGroup}>
                       <Text style={styles.statusLabel}>Predplatné do</Text>
                       <Text style={styles.statusDate}>
@@ -209,8 +202,7 @@ export default class HomeScreen extends Component<Props, HomeScreenState> {
                       isLandscape && styles.statusCardLandscape,
                     ]}>
                     <Icon
-                      name="error-outline"
-                      type="material"
+                      name="alert-circle-outline"
                       color="#c62828"
                       size={56}
                     />

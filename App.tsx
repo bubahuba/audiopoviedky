@@ -8,7 +8,7 @@ import {
   type DrawerContentComponentProps,
 } from '@react-navigation/drawer';
 import {ensureInitialized, restoreLastPlaybackSession} from './src/services/globalPlayback';
-import {loadAuthSession} from './src/services/authStorage';
+import {ensureFreshAuthSession} from './src/services/auth';
 import type {DrawerParamList, RootStackParamList} from './src/types/navigation';
 import {stackScreen} from './src/types/navigation';
 
@@ -39,22 +39,29 @@ function AudiopoviedkyStack() {
     let cancelled = false;
 
     (async () => {
-      await ensureInitialized();
-      await restoreLastPlaybackSession();
-      const session = await loadAuthSession();
+      try {
+        await ensureInitialized();
+        await restoreLastPlaybackSession();
+        const session = await ensureFreshAuthSession();
 
-      if (cancelled) {
-        return;
-      }
+        if (cancelled) {
+          return;
+        }
 
-      if (session?.sid) {
-        setHomeParams({
-          url: 'nakupy',
-          sid: session.sid,
-          credentials: session.credentials,
-        });
+        if (session) {
+          setHomeParams({
+            url: 'nakupy',
+            sid: session.sid,
+            credentials: session.credentials,
+          });
+        }
+      } catch (error) {
+        console.error('App bootstrap failed:', error);
+      } finally {
+        if (!cancelled) {
+          setAuthReady(true);
+        }
       }
-      setAuthReady(true);
     })();
 
     return () => {

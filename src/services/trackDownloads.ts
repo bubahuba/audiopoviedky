@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-community/async-storage';
+import AsyncStorage from './asyncStorage';
 import ReactNativeBlobUtil from 'react-native-blob-util';
 import type {AudioTrack} from '../types/api';
 import type {DownloadManifest} from '../types/playback';

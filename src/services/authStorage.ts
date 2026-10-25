@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-community/async-storage';
+import AsyncStorage from './asyncStorage';
 import type {AuthSession, Credentials} from '../types/auth';
 import {
   AUTH_EMAIL_KEY,

@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-community/async-storage';
+import AsyncStorage from './asyncStorage';
 import type {PersistedPlaybackSession} from '../types/playback';
 import {PLAYBACK_SESSION_KEY} from './storageKeys';
 
