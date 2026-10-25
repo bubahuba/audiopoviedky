@@ -14,6 +14,10 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {isSubscriptionActive, jsCoreDateCreator} from '../services';
 import {fetchJsonWithCache} from '../services/apiCache';
+import {
+  loadStoredSubscription,
+  saveStoredSubscription,
+} from '../services/subscriptionStorage';
 import HomeGlobalPlayer from '../components/HomeGlobalPlayer';
 import {
   getPlaybackState,
@@ -54,6 +58,18 @@ export default class HomeScreen extends Component<Props, HomeScreenState> {
     };
   }
 
+  applyStoredSubscription = async () => {
+    const stored = await loadStoredSubscription();
+    if (!stored) {
+      return;
+    }
+
+    this.setState({
+      stream: {duration: stored.expiryDuration},
+      isPaid: isSubscriptionActive(stored.expiryDuration),
+    });
+  };
+
   refreshStatus = () => {
     const {route} = this.props;
     this.setState({isLoading: true});
@@ -70,9 +86,10 @@ export default class HomeScreen extends Component<Props, HomeScreenState> {
         body: 'PHPSESSID=' + route.params.sid,
       },
     )
-      .then((responseJson) => {
+      .then(async (responseJson) => {
         if (responseJson.stream?.length) {
           const stream = responseJson.stream[0];
+          await saveStoredSubscription(stream.duration);
           this.setState({
             stream,
             isPaid: isSubscriptionActive(stream.duration),
@@ -82,8 +99,9 @@ export default class HomeScreen extends Component<Props, HomeScreenState> {
           this.setState({isPaid: false, isLoading: false});
         }
       })
-      .catch((error) => {
+      .catch(async (error) => {
         console.error(error);
+        await this.applyStoredSubscription();
         this.setState({isLoading: false});
       });
   };
@@ -99,6 +117,7 @@ export default class HomeScreen extends Component<Props, HomeScreenState> {
         this.setState({windowDimensions: window});
       },
     );
+    void this.applyStoredSubscription();
     this.refreshStatus();
     this.focusUnsubscribe = navigation.addListener('focus', () => {
       this.refreshStatus();

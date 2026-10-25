@@ -6,6 +6,23 @@ import {DOWNLOADED_TRACKS_KEY} from './storageKeys';
 
 const TRACK_DIR = `${ReactNativeBlobUtil.fs.dirs.DocumentDir}/tracks`;
 
+type DownloadRemovalListener = (trackId: string) => void;
+const downloadRemovalListeners = new Set<DownloadRemovalListener>();
+
+export function subscribeToDownloadRemovals(
+  listener: DownloadRemovalListener,
+): () => void {
+  downloadRemovalListeners.add(listener);
+  return () => {
+    downloadRemovalListeners.delete(listener);
+  };
+}
+
+function notifyDownloadRemoved(trackId: string): void {
+  const id = String(trackId);
+  downloadRemovalListeners.forEach((listener) => listener(id));
+}
+
 async function ensureTrackDir(): Promise<void> {
   const exists = await ReactNativeBlobUtil.fs.exists(TRACK_DIR);
   if (!exists) {
@@ -95,5 +112,6 @@ export async function removeDownloadedTrack(trackId: string): Promise<void> {
     }
     delete manifest[id];
     await writeManifest(manifest);
+    notifyDownloadRemoved(id);
   }
 }

@@ -7,6 +7,14 @@ import {
 import {API_URL, type LoginResponse} from '../types/api';
 import type {AuthSession, Credentials} from '../types/auth';
 
+function isRecoverableNetworkError(error: unknown): boolean {
+  if (error instanceof TypeError) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return !message.includes('status');
+}
+
 export async function loginWithCredentials(
   credentials: Credentials,
 ): Promise<string | null> {
@@ -45,6 +53,10 @@ async function refreshStoredAuthSession(): Promise<AuthSession | null> {
     await saveAuthSession(freshSession);
     return freshSession;
   } catch (error) {
+    if (isRecoverableNetworkError(error)) {
+      console.warn('Session refresh offline, using stored session');
+      return session;
+    }
     console.error('Session refresh failed:', error);
     return null;
   }

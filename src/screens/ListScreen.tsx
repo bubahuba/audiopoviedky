@@ -29,6 +29,7 @@ import {
   downloadTrack,
   isTrackDownloaded,
   removeDownloadedTrack,
+  subscribeToDownloadRemovals,
 } from '../services/trackDownloads';
 import {
   getPlaybackState,
@@ -79,6 +80,7 @@ export default class ListScreen extends React.Component<
   private unsubscribePlayback?: () => void;
   private dimensionsSubscription?: {remove: () => void};
   private focusUnsubscribe?: () => void;
+  private unsubscribeDownloadRemovals?: () => void;
 
   constructor(props: Props) {
     super(props);
@@ -123,6 +125,14 @@ export default class ListScreen extends React.Component<
     this.focusUnsubscribe = this.props.navigation.addListener('focus', () => {
       this.scrollToRequestedTrack();
     });
+
+    this.unsubscribeDownloadRemovals = subscribeToDownloadRemovals(
+      (trackId) => {
+        this.setState(({downloadedTracks}) => ({
+          downloadedTracks: {...downloadedTracks, [trackId]: false},
+        }));
+      },
+    );
 
     await this.loadAudio(false);
     this.setState({isLoading: false});
@@ -173,6 +183,7 @@ export default class ListScreen extends React.Component<
     this.unsubscribePlayback?.();
     this.dimensionsSubscription?.remove();
     this.focusUnsubscribe?.();
+    this.unsubscribeDownloadRemovals?.();
   };
 
   scrollToTop = () => {
@@ -217,6 +228,7 @@ export default class ListScreen extends React.Component<
       audioItems,
       trackList,
       cachedArtworks,
+      this.props.route.params.sid,
     );
 
     this.setState(

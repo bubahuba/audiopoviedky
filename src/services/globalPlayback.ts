@@ -1,7 +1,7 @@
-import {AppState, type AppStateStatus} from 'react-native';
+import {Alert, AppState, type AppStateStatus} from 'react-native';
 import TrackPlayer, {Capability, Event, State} from 'react-native-track-player';
 import type {NavigationProp} from '@react-navigation/native';
-import type {AudioTrack} from '../types/api';
+import {API_URL, type AudioListResponse, type AudioTrack} from '../types/api';
 import type {
   CurrentTrackInfo,
   PlaybackState,
@@ -9,8 +9,16 @@ import type {
   TrackArtworkEntry,
 } from '../types/playback';
 import type {RootStackParamList} from '../types/navigation';
+import {isAudioPlayable} from './index';
+import {fetchJsonFromSource} from './apiCache';
 import {buildTrackLists} from './audioList';
 import {cacheImages} from './imageCache';
+import {isDeviceOffline} from './networkStatus';
+import {isStoredSubscriptionActive} from './subscriptionAccess';
+import {
+  getLocalTrackPath,
+  removeDownloadedTrack,
+} from './trackDownloads';
 import {setupTrackPlayer} from './trackPlayerSetup';
 import {
   loadPlaybackPosition,
@@ -40,6 +48,8 @@ let state: PlaybackState = {
   nowPlayingId: null,
   isPaused: true,
 };
+
+let playbackListSid: string | null = null;
 
 function emit(): void {
   const snapshot = {...state};
@@ -153,6 +163,115 @@ function findNextPlayableIndex(startIndex: number): number | null {
     }
   }
   return null;
+}
+
+function showOfflinePlaybackAlert(): void {
+  Alert.alert(
+    'Chyba siete',
+    'Na prehratie ukážky je potrebné internetové pripojenie.',
+  );
+}
+
+async function rebuildTrackQueueFromAudio(): Promise<void> {
+  const {trackList, trackListArtworks} = await buildTrackLists(state.audio);
+  const artworkMap = await cacheImages(
+    trackListArtworks.map((entry) => entry.artwork),
+  );
+  const cachedArtworks = trackListArtworks.map((entry) => ({
+    ...entry,
+    artwork: artworkMap[entry.artwork] || entry.artwork,
+  }));
+  await refreshTracks(state.audio, trackList, cachedArtworks);
+}
+
+async function refreshAudioFromServerIfOnline(): Promise<boolean> {
+  if (await isDeviceOffline() || !state.listKey || !playbackListSid) {
+    return false;
+  }
+
+  const requestUrl = `${API_URL}${state.listKey}/?app`;
+  try {
+    const responseJson = await fetchJsonFromSource<AudioListResponse>(
+      requestUrl,
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Cookie: `PHPSESSID=${playbackListSid}`,
+        },
+        credentials: 'omit',
+      },
+    );
+    if (!responseJson.audio?.length) {
+      return false;
+    }
+    setState({audio: responseJson.audio});
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function trackUsesLocalFile(track: PlaybackTrack): boolean {
+  return track.url.startsWith('file://');
+}
+
+/**
+ * When subscription expired, local full downloads must not play.
+ * Deletes the on-device file; caller rebuilds the queue.
+ */
+async function purgeExpiredLocalDownload(
+  trackId: string,
+  track?: PlaybackTrack,
+): Promise<boolean> {
+  if (await isStoredSubscriptionActive()) {
+    return false;
+  }
+
+  const localPath = await getLocalTrackPath(trackId);
+  const queuedAsLocal = track ? trackUsesLocalFile(track) : false;
+  if (!localPath && !queuedAsLocal) {
+    return false;
+  }
+
+  if (localPath) {
+    await removeDownloadedTrack(trackId);
+  }
+  return true;
+}
+
+async function handleExpiredSubscriptionPlayAttempt(
+  index: number,
+  track: PlaybackTrack,
+): Promise<PlaybackTrack | null> {
+  const purged = await purgeExpiredLocalDownload(track.id, track);
+  if (!purged) {
+    return track;
+  }
+
+  const offline = await isDeviceOffline();
+  if (!offline) {
+    await refreshAudioFromServerIfOnline();
+  }
+  await rebuildTrackQueueFromAudio();
+
+  if (offline) {
+    showOfflinePlaybackAlert();
+    await TrackPlayer.reset();
+    setState({nowPlayingId: null, isPaused: true});
+    return null;
+  }
+
+  const audioItem = state.audio[index];
+  if (!audioItem || !isAudioPlayable(audioItem)) {
+    showOfflinePlaybackAlert();
+    await TrackPlayer.reset();
+    setState({nowPlayingId: null, isPaused: true});
+    return null;
+  }
+
+  return findTrackByIndex(index) ?? null;
 }
 
 async function waitUntilReady(): Promise<void> {
@@ -365,8 +484,13 @@ export async function setList(
   audio: AudioTrack[],
   trackList: PlaybackTrack[],
   trackListArtworks: TrackArtworkEntry[],
+  sid?: string | null,
 ): Promise<void> {
   await ensureInitialized();
+
+  if (sid !== undefined) {
+    playbackListSid = sid;
+  }
 
   const previousListKey = state.listKey;
   setState({audio, trackList, trackListArtworks, listKey});
@@ -442,9 +566,22 @@ export async function playTrackAtIndex(
 ): Promise<void> {
   await ensureInitialized();
 
-  const track = findTrackByIndex(index);
+  let track = findTrackByIndex(index);
   if (!track) {
     return;
+  }
+
+  if (!(await isStoredSubscriptionActive())) {
+    const hasLocalCopy =
+      Boolean(await getLocalTrackPath(track.id)) ||
+      trackUsesLocalFile(track);
+    if (hasLocalCopy) {
+      const resolved = await handleExpiredSubscriptionPlayAttempt(index, track);
+      if (!resolved) {
+        return;
+      }
+      track = resolved;
+    }
   }
 
   if (state.nowPlayingId === track.id) {
@@ -503,6 +640,24 @@ export async function seekTo(seconds: number): Promise<void> {
 export async function togglePlayback(): Promise<void> {
   if (!state.nowPlayingId) {
     return;
+  }
+
+  const currentTrack = state.trackList.find(
+    (entry) => entry.id === state.nowPlayingId,
+  );
+  if (
+    currentTrack &&
+    !(await isStoredSubscriptionActive()) &&
+    (Boolean(await getLocalTrackPath(currentTrack.id)) ||
+      trackUsesLocalFile(currentTrack))
+  ) {
+    const resolved = await handleExpiredSubscriptionPlayAttempt(
+      currentTrack.index,
+      currentTrack,
+    );
+    if (!resolved) {
+      return;
+    }
   }
 
   if (state.isPaused) {

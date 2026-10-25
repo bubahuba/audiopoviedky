@@ -13,6 +13,7 @@ import {Button} from 'react-native-elements';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import type {DrawerContentComponentProps} from '@react-navigation/drawer';
 import {clearAuthSession, loadAuthSession, saveAuthSession} from '../services/authStorage';
+import {clearStoredSubscription} from '../services/subscriptionStorage';
 import {ensureFreshAuthSession, loginWithCredentials} from '../services/auth';
 import {API_URL} from '../types/api';
 import type {Credentials} from '../types/auth';
@@ -189,7 +190,10 @@ export default class DrawerScreen extends Component<Props, DrawerScreenState> {
   componentDidMount = async () => {
     const session = await loadAuthSession();
     if (session?.credentials?.email) {
-      this.setState({credentials: session.credentials});
+      this.setState({
+        credentials: session.credentials,
+        sid: session.sid || null,
+      });
       this.setName(session.credentials.email);
       this.setPass(session.credentials.passw);
     }
@@ -216,6 +220,7 @@ export default class DrawerScreen extends Component<Props, DrawerScreenState> {
     const url = `${API_URL}prihlasenie/odhlasenie?app`;
     fetch(url).catch(() => {});
     await clearAuthSession();
+    await clearStoredSubscription();
     this.setState(
       {
         sid: null,

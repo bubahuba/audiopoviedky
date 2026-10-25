@@ -2,6 +2,7 @@ import {API_URL} from '../types/api';
 import type {AudioTrack} from '../types/api';
 import type {PlaybackTrack, TrackArtworkEntry} from '../types/playback';
 import {isAudioPlayable} from './index';
+import {isStoredSubscriptionActive} from './subscriptionAccess';
 import {getLocalTrackPath} from './trackDownloads';
 
 export function getArtworkUrl(trackId: string): string {
@@ -31,10 +32,16 @@ export async function buildTrackLists(
 ): Promise<BuiltTrackLists> {
   const trackList: PlaybackTrack[] = [];
   const trackListArtworks: TrackArtworkEntry[] = [];
+  const subscriptionActive = await isStoredSubscriptionActive();
 
   for (let index = 0; index < audioItems.length; index += 1) {
     const audioTrack = audioItems[index];
-    const isPlayable = isAudioPlayable(audioTrack);
+    const localPath = subscriptionActive
+      ? await getLocalTrackPath(audioTrack.id)
+      : null;
+    const isPlayable =
+      isAudioPlayable(audioTrack) ||
+      (subscriptionActive && Boolean(localPath));
     const artwork = getArtworkUrl(audioTrack.id);
 
     trackListArtworks.push({
@@ -43,9 +50,12 @@ export async function buildTrackLists(
     });
 
     if (isPlayable) {
-      const localPath = await getLocalTrackPath(audioTrack.id);
+      const remoteUrl = audioTrack.file || '';
+      if (!localPath && !remoteUrl) {
+        continue;
+      }
       const trackEntry: PlaybackTrack = {
-        url: toPlaybackUrl(localPath, audioTrack.file),
+        url: toPlaybackUrl(localPath, remoteUrl),
         artist: audioTrack.authors,
         id: audioTrack.id,
         index,

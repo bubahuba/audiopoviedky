@@ -54,7 +54,8 @@ export default class AudioItem extends Component<
     const dimensions = props.screenDimensions || Dimensions.get('screen');
     this.state = {
       isOpen: typeof props.forceOpen === 'boolean' ? props.forceOpen : false,
-      isPlayable: isAudioPlayable(props.item),
+      isPlayable:
+        isAudioPlayable(props.item) || Boolean(props.isDownloaded),
       dimensions,
     };
   }
@@ -73,7 +74,8 @@ export default class AudioItem extends Component<
     }
 
     if (nextProps.item) {
-      const playable = isAudioPlayable(nextProps.item);
+      const playable =
+        isAudioPlayable(nextProps.item) || Boolean(nextProps.isDownloaded);
       if (playable !== prevState.isPlayable) {
         updates.isPlayable = playable;
       }

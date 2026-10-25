@@ -5,5 +5,6 @@ export const AUTH_SESSION_KEY = '@loginSession';
 export const DOWNLOADED_TRACKS_KEY = '@downloadedTracks';
 export const PLAYBACK_POSITION_PREFIX = '@playbackPosition:';
 export const PLAYBACK_SESSION_KEY = '@playbackSession';
+export const SUBSCRIPTION_STATUS_KEY = '@subscriptionStatus';
 
 export const apiCacheKey = (url: string): string => `@apiCache:${url}`;
